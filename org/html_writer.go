@@ -405,35 +405,48 @@ func (w *HTMLWriter) WriteRegularLink(l RegularLink) {
 	}
 	if prefix := w.document.Links[l.Protocol]; prefix != "" {
 		if tag := strings.TrimPrefix(l.URL, l.Protocol+":"); strings.Contains(prefix, "%s") || strings.Contains(prefix, "%h") {
-			url = html.EscapeString(strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", tag), "%h", u.QueryEscape(tag)))
+			url = strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", tag), "%h", u.QueryEscape(tag))
 		} else {
-			url = html.EscapeString(prefix) + tag
+			url = prefix + tag
 		}
 	} else if prefix := w.document.Links[l.URL]; prefix != "" {
-		url = html.EscapeString(strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", ""), "%h", ""))
+		url = strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", ""), "%h", "")
 	}
+	// Routing above operates on the raw link target (l.URL stays untouched).
+	// Only now, at the attribute serialization boundary, is the target
+	// escaped - exactly once - for the HTML attribute context.
+	escapedURL := escapeHTMLAttribute(url)
 	switch l.Kind() {
 	case "image":
 		if l.Description == nil {
-			w.WriteString(fmt.Sprintf(`<img src="%s" alt="%s" title="%s" />`, url, url, url))
+			w.WriteString(fmt.Sprintf(`<img src="%s" alt="%s" title="%s" />`, escapedURL, escapedURL, escapedURL))
 		} else {
-			description := strings.TrimPrefix(String(l.Description...), "file:")
-			w.WriteString(fmt.Sprintf(`<a href="%s"><img src="%s" alt="%s" /></a>`, url, description, description))
+			description := escapeHTMLAttribute(strings.TrimPrefix(String(l.Description...), "file:"))
+			w.WriteString(fmt.Sprintf(`<a href="%s"><img src="%s" alt="%s" /></a>`, escapedURL, description, description))
 		}
 	case "video":
 		if l.Description == nil {
-			w.WriteString(fmt.Sprintf(`<video src="%s" title="%s">%s</video>`, url, url, url))
+			w.WriteString(fmt.Sprintf(`<video src="%s" title="%s">%s</video>`, escapedURL, escapedURL, escapedURL))
 		} else {
-			description := strings.TrimPrefix(String(l.Description...), "file:")
-			w.WriteString(fmt.Sprintf(`<a href="%s"><video src="%s" title="%s"></video></a>`, url, description, description))
+			description := escapeHTMLAttribute(strings.TrimPrefix(String(l.Description...), "file:"))
+			w.WriteString(fmt.Sprintf(`<a href="%s"><video src="%s" title="%s"></video></a>`, escapedURL, description, description))
 		}
 	default:
-		description := url
+		description := escapedURL
 		if l.Description != nil {
 			description = w.WriteNodesAsString(l.Description...)
 		}
-		w.WriteString(fmt.Sprintf(`<a href="%s">%s</a>`, url, description))
+		w.WriteString(fmt.Sprintf(`<a href="%s">%s</a>`, escapedURL, description))
 	}
+}
+
+// escapeHTMLAttribute escapes a raw link target exactly once for use in an
+// HTML attribute (or text) context. It must only be applied at the
+// serialization boundary, after all routing decisions (protocol mapping,
+// relative path rewriting, image/video/file detection) have been made on
+// the raw target - escaping earlier would corrupt both routing and encoding.
+func escapeHTMLAttribute(raw string) string {
+	return html.EscapeString(raw)
 }
 
 func (w *HTMLWriter) WriteMacro(m Macro) {
