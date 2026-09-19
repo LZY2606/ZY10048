@@ -389,51 +389,90 @@ func (w *HTMLWriter) WriteTimestamp(t Timestamp) {
 }
 
 func (w *HTMLWriter) WriteRegularLink(l RegularLink) {
-	url := l.URL
-	if l.Protocol == "file" {
-		url = url[len("file:"):]
-	}
-	if isRelative := l.Protocol == "file" || l.Protocol == ""; isRelative && w.PrettyRelativeLinks {
-		if !strings.HasPrefix(url, "/") {
-			url = "../" + url
-		}
-		if strings.HasSuffix(url, ".org") {
-			url = strings.TrimSuffix(url, ".org") + "/"
-		}
-	} else if isRelative && strings.HasSuffix(url, ".org") {
-		url = strings.TrimSuffix(url, ".org") + ".html"
-	}
-	if prefix := w.document.Links[l.Protocol]; prefix != "" {
-		if tag := strings.TrimPrefix(l.URL, l.Protocol+":"); strings.Contains(prefix, "%s") || strings.Contains(prefix, "%h") {
-			url = html.EscapeString(strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", tag), "%h", u.QueryEscape(tag)))
-		} else {
-			url = html.EscapeString(prefix) + tag
-		}
-	} else if prefix := w.document.Links[l.URL]; prefix != "" {
-		url = html.EscapeString(strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", ""), "%h", ""))
-	}
-	switch l.Kind() {
+	kind := l.Kind()
+	target := w.regularLinkTarget(l)
+	var output string
+
+	switch kind {
 	case "image":
 		if l.Description == nil {
-			w.WriteString(fmt.Sprintf(`<img src="%s" alt="%s" title="%s" />`, url, url, url))
+			output = regularLinkTag("img", true, [2]string{"src", target}, [2]string{"alt", target}, [2]string{"title", target})
 		} else {
 			description := strings.TrimPrefix(String(l.Description...), "file:")
-			w.WriteString(fmt.Sprintf(`<a href="%s"><img src="%s" alt="%s" /></a>`, url, description, description))
+			output = regularLinkTag("a", false, [2]string{"href", target}) +
+				regularLinkTag("img", true, [2]string{"src", description}, [2]string{"alt", description}) +
+				"</a>"
 		}
 	case "video":
 		if l.Description == nil {
-			w.WriteString(fmt.Sprintf(`<video src="%s" title="%s">%s</video>`, url, url, url))
+			output = regularLinkTag("video", false, [2]string{"src", target}, [2]string{"title", target}) +
+				html.EscapeString(target) + "</video>"
 		} else {
 			description := strings.TrimPrefix(String(l.Description...), "file:")
-			w.WriteString(fmt.Sprintf(`<a href="%s"><video src="%s" title="%s"></video></a>`, url, description, description))
+			output = regularLinkTag("a", false, [2]string{"href", target}) +
+				regularLinkTag("video", false, [2]string{"src", description}, [2]string{"title", description}) +
+				"</video></a>"
 		}
 	default:
-		description := url
+		description := html.EscapeString(target)
 		if l.Description != nil {
 			description = w.WriteNodesAsString(l.Description...)
 		}
-		w.WriteString(fmt.Sprintf(`<a href="%s">%s</a>`, url, description))
+		output = regularLinkTag("a", false, [2]string{"href", target}) + description + "</a>"
 	}
+
+	w.WriteString(output)
+}
+
+func (w *HTMLWriter) regularLinkTarget(l RegularLink) string {
+	target := l.URL
+	if l.Protocol == "file" {
+		target = target[len("file:"):]
+	}
+	if isRelative := l.Protocol == "file" || l.Protocol == ""; isRelative && w.PrettyRelativeLinks {
+		if !strings.HasPrefix(target, "/") {
+			target = "../" + target
+		}
+		if strings.HasSuffix(target, ".org") {
+			target = strings.TrimSuffix(target, ".org") + "/"
+		}
+	} else if isRelative && strings.HasSuffix(target, ".org") {
+		target = strings.TrimSuffix(target, ".org") + ".html"
+	}
+	if prefix := w.document.Links[l.Protocol]; prefix != "" {
+		if tag := strings.TrimPrefix(l.URL, l.Protocol+":"); strings.Contains(prefix, "%s") || strings.Contains(prefix, "%h") {
+			target = strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", tag), "%h", u.QueryEscape(tag))
+		} else {
+			target = prefix + tag
+		}
+	} else if prefix := w.document.Links[l.URL]; prefix != "" {
+		target = strings.ReplaceAll(strings.ReplaceAll(prefix, "%s", ""), "%h", "")
+	}
+	return target
+}
+
+func regularLinkTag(name string, selfClosing bool, attributes ...[2]string) string {
+	var builder strings.Builder
+	builder.WriteByte('<')
+	builder.WriteString(name)
+	for _, attribute := range attributes {
+		builder.WriteByte(' ')
+		builder.WriteString(regularLinkAttribute(attribute[0], attribute[1]))
+	}
+	if selfClosing {
+		builder.WriteString(" />")
+	} else {
+		builder.WriteByte('>')
+	}
+	return builder.String()
+}
+
+func regularLinkAttribute(name, value string) string {
+	return name + `="` + regularLinkAttributeValue(value) + `"`
+}
+
+func regularLinkAttributeValue(value string) string {
+	return html.EscapeString(value)
 }
 
 func (w *HTMLWriter) WriteMacro(m Macro) {
